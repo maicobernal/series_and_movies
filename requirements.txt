@@ -1,0 +1,7 @@
+boto3
+pandas
+numpy
+SQLAlchemy==1.4.46
+matplotlib
+seaborn
+plotly
