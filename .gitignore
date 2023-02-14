@@ -1,6 +1,7 @@
 **/.ipynb_checkpoints
 /.vscode
 credentials.json
+.DS_Store
 s3.json
 /data
 /private
