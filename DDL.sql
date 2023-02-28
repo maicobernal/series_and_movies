@@ -1,43 +1,41 @@
-## Creación de schema
+#### CREACION SCHEMA ####
 CREATE SCHEMA `rockingdata` DEFAULT CHARACTER SET utf8mb4 COLLATE= utf8mb4_spanish_ci;
 USE rockingdata;
 
-## Settings
+#### SETTINGS ####
 SELECT @@global.secure_file_priv;
 SET GLOBAL local_infile=1;
+SET SQL_SAFE_UPDATES = 0;
+SET FOREIGN_KEY_CHECKS=0;
+SET SESSION group_concat_max_len = 10000;
 
-## Tabla inicial donde volcar datos sin procesar
-CREATE TABLE IF NOT EXISTS `rawdata`(e
+#### TABLAS ####
+## RAW DATA - tabla inicial
+CREATE TABLE IF NOT EXISTS `rawdata`(
 `IndexId` INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY,
 `ShowId` VARCHAR(50) NOT NULL, 
 `Type` VARCHAR(50),
 `Title` VARCHAR(500),
-`Director` TEXT,
-`Cast` TEXT,
-`Country` TEXT,
+`Director` INTEGER,
+`Cast` INTEGER,
+`Country` INTEGER,
 `DateAdded` DATE,
 `ReleaseYear` INTEGER,
 `Rating` TEXT,
 `Duration` INTEGER,
-`ListedIn` TEXT,
+`ListedIn` INTEGER,
 `Description` VARCHAR(500),
 `Origin` VARCHAR(50)
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-## Tabla de hecho - AllShows
-CREATE TABLE IF NOT EXISTS `allshows`(
-`ShowId` INTEGER NOT NULL, 
+## Tabla de hecho ##
+# Shows
+CREATE TABLE IF NOT EXISTS `shows`(
+`ShowId` INTEGER NOT NULL PRIMARY KEY AUTO_INCREMENT, 
 `ShowIdFromOrigin` VARCHAR(10), 
 `OriginID` INTEGER NOT NULL,
-`TypeID` INTEGER NOT NULL
-)
-ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
-
-## Tabla "dimensional" Movie
-CREATE TABLE IF NOT EXISTS `movie`(
-`MovieId` INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY, 
-`ShowId` INTEGER NOT NULL, 
+`TypeID` INTEGER NOT NULL,
 `Title` TEXT,
 `DirectorId` INTEGER,
 `CastId` INTEGER,
@@ -51,47 +49,32 @@ CREATE TABLE IF NOT EXISTS `movie`(
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-## Tabla "dimensional" TV
-CREATE TABLE IF NOT EXISTS `tv`(
-`TVId` INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY, 
-`ShowId` INTEGER NOT NULL, 
-`Title` TEXT,
-`DirectorId` INTEGER,
-`CastId` INTEGER,
-`CountryId` INTEGER,
-`DateAdded` DATE,
-`ReleaseYear` INTEGER,
-`RatingId` TEXT,
-`Duration` INTEGER,
-`ListedId` INTEGER,
-`Description` TEXT
-)
-ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
-
-## Tabla dimensional Origin
-# Almacena origen del dato - Si es un show listado en Netflix o Disney
-DROP TABLE `origin`;
+## Tablas dimensionales ##
+# Origin ==> Almacena origen del dato - Si es un show listado en Netflix o Disney
+DROP TABLE IF EXISTS `origin`;
 CREATE TABLE IF NOT EXISTS `origin`(
 `OriginId` INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY, 
 `Name` VARCHAR(50)
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-## Tabla dimensional para tipo de show: Pelicula o TV show
-DROP TABLE `type`;
+# Type ==> Pelicula o TV show
+DROP TABLE IF EXISTS `type`;
 CREATE TABLE IF NOT EXISTS `type`(
 `TypeId` INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY, 
 `Name` VARCHAR(50)
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-## Tabla dimensional con valores unicos de rating - global - para Netflix y Disney
+## Rating ==> global - para Netflix y Disney
+DROP TABLE IF EXISTS `rating`;
 CREATE TABLE IF NOT EXISTS `rating`(
 `RatingId` INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY, 
 `Name` VARCHAR(100)
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
+#### INSERTS ####
 ## Insertar tipos de show (TV/Movie) en tabla dimensional
 INSERT INTO type (Name)
 SELECT DISTINCT(TYPE) FROM RAWDATA;
@@ -104,369 +87,238 @@ SELECT DISTINCT(origin) FROM RAWDATA;
 INSERT INTO rating (Name)
 SELECT DISTINCT(rating) FROM RAWDATA;
 
-
-## Insertar datos desnormalizados en tabla de hecho
-INSERT INTO allshows (ShowId, ShowIdFromOrigin, OriginId, TypeID)
-SELECT IndexId, ShowId, CASE WHEN Origin = 'Disney' THEN 1 ELSE 2 END AS origin_coded, CASE WHEN type = 'Movie' THEN 1 ELSE 2 END AS type_coded
-from rawdata;
+## Insertar datos normalizados en tabla de hecho
+INSERT INTO shows (ShowIdFromOrigin, OriginId, TypeID, Title, 
+					DirectorId, CastId, CountryId, DateAdded, ReleaseYear, 
+					RatingId, Duration, ListedId, Description)
+SELECT ShowId, 
+		CASE WHEN Origin = 'Disney' THEN 1 ELSE 2 END AS OriginCoded, 
+        CASE WHEN type = 'Movie' THEN 1 ELSE 2 END AS TypeCoded, 
+        Title, Director, Cast, Country, DateAdded, ReleaseYear, Rating, Duration, ListedIn, Description
+FROM rawdata;
 
 ## Insertar datos de origen (Netflix/Disney) en tabla dimensional
 INSERT INTO origin (Name)
 SELECT DISTINCT(origin)
 from rawdata;
 
-SET SQL_SAFE_UPDATES = 0;
-## Tabla movies
-INSERT INTO movie (ShowId, Title, DirectorId, CastId,CountryId, DateAdded, ReleaseYear, RatingId, Duration, ListedId, Description)
-SELECT IndexId, Title, IndexId,IndexId,IndexId,DateAdded,ReleaseYear,Rating,Duration,IndexId,Description 
-from rawdata 
-where type = 'Movie';
+#### UPDATES ####
 
-UPDATE movie
-SET movie.RatingId = (SELECT rating.RatingId FROM rating WHERE movie.RatingId = rating.Name);
+## Tabla Shows
+UPDATE `shows`
+SET shows.RatingId = (SELECT rating.RatingId FROM rating WHERE shows.RatingId = rating.Name);
 
-## Tabla TV shows
-INSERT INTO tv (ShowId, Title, DirectorId, CastId,CountryId, DateAdded, ReleaseYear, RatingId, Duration, ListedId, Description)
-SELECT IndexId, Title, IndexId,IndexId,IndexId,DateAdded,ReleaseYear,Rating,Duration,IndexId,Description 
-from rawdata 
-where type = 'TV Show';
-
-## Update rating con ID's de tabla dimensional
-UPDATE tv
-SET tv.RatingId = (SELECT rating.RatingId FROM rating WHERE tv.RatingId = rating.Name);
+ALTER TABLE `shows` 
+CHANGE COLUMN `RatingId` `RatingId` INT NULL DEFAULT NULL ;
 
 
-## Creacion y carga de tabla dimensional director
-DROP TABLE `director`;
-CREATE TABLE IF NOT EXISTS `director`(
-`DirectorId` INTEGER NOT NULL PRIMARY KEY, 
-`FullNames` TEXT
+#### DENORMALIZACION #####
+
+##TABLA CAST
+#a) Creamos la tabla
+DROP TABLE IF EXISTS cast_ok; 
+CREATE TABLE cast_ok (
+  AllActors VARCHAR(255),
+  CastId INT
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-INSERT INTO director (DirectorId, FullNames)
-SELECT IndexId, Director
-from rawdata;
+#b) Guardamos el primer resultado con todo los actores
+SET @query1 = NULL;
 
-## Creacion y carga de tabla dimensional cast
-DROP TABLE `cast`;
-CREATE TABLE IF NOT EXISTS `cast`(
-`CastId` INTEGER NOT NULL PRIMARY KEY, 
-`FullNames` TEXT
-)
-ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
+SELECT GROUP_CONCAT(
+    CONCAT('SELECT ', column_name, ' AS AllCast, castid FROM cast WHERE ', column_name, ' IS NOT NULL')
+    SEPARATOR ' UNION ALL '
+) INTO @query1
+FROM information_schema.columns
+WHERE table_name = 'cast'
+  AND column_name LIKE 'Cast_%';
+  
+#c) Y ejecutamos el siguiente statement para guardar todo en la tabla denormalizada
+SET @query2 = CONCAT('INSERT INTO cast_ok (AllActors, CastId) SELECT AllCast, CastID FROM (', @query1, ') AS temp');
+PREPARE stmt FROM @query2;
+EXECUTE stmt;
 
-INSERT INTO cast (CastId, FullNames)
-SELECT IndexId, Cast
-from rawdata;
+#TABLA DIRECTORS
+#a) Creamos la tabla denormalizada
+DROP TABLE IF EXISTS director_ok; 
+CREATE TABLE director_ok (
+  AllDirectors VARCHAR(255),
+  DirectorId INT
+)ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-## Creacion y carga de tabla dimensional country
+#b) Guardamos el primer resultado con todo los directores
+SET @query1 = NULL;
+
+SELECT GROUP_CONCAT(
+    CONCAT('SELECT ', column_name, ' AS AllDirectors, DirectorId FROM director WHERE ', column_name, ' IS NOT NULL')
+    SEPARATOR ' UNION ALL '
+) INTO @query1
+FROM information_schema.columns
+WHERE table_name = 'director'
+  AND column_name LIKE 'Director_%';
+  
+#c) Y ejecutamos el siguiente statement para guardar todo en la tabla denormalizada
+SET @query2 = CONCAT('INSERT INTO director_ok (AllDirectors, DirectorId) SELECT AllDirectors, DirectorId FROM (', @query1, ') AS temp');
+PREPARE stmt FROM @query2;
+EXECUTE stmt;
+
+#TABLA COUNTRY
+#a) Creamos la tabla denormalizada
+DROP TABLE IF EXISTS country_ok; 
+CREATE TABLE country_ok (
+  AllCountries VARCHAR(255),
+  CountryId INT
+)ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
+
+#b) Guardamos el primer resultado con todo los directores
+SET @query1 = NULL;
+
+SELECT GROUP_CONCAT(
+    CONCAT('SELECT ', column_name, ' AS AllCountries, CountryId FROM country WHERE ', column_name, ' IS NOT NULL')
+    SEPARATOR ' UNION ALL '
+) INTO @query1
+FROM information_schema.columns
+WHERE table_name = 'country'
+  AND column_name LIKE 'Country_%';
+  
+#c) Y ejecutamos el siguiente statement para guardar todo en la tabla denormalizada
+SET @query2 = CONCAT('INSERT INTO country_ok (AllCountries, CountryId) SELECT AllCountries, CountryId FROM (', @query1, ') AS temp');
+PREPARE stmt FROM @query2;
+EXECUTE stmt;
+
+
+# TABLA LISTED 
+#a) Creamos la tabla
+DROP TABLE IF EXISTS listed_ok; 
+CREATE TABLE listed_ok (
+  AllListed VARCHAR(255),
+  ListedId INT
+)ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
+
+#b) Guardamos el primer resultado con todo los directores
+SET @query1 = NULL;
+
+SELECT GROUP_CONCAT(
+    CONCAT('SELECT ', column_name, ' AS AllListed, ListedId FROM listed WHERE ', column_name, ' IS NOT NULL')
+    SEPARATOR ' UNION ALL '
+) INTO @query1
+FROM information_schema.columns
+WHERE table_name = 'listed'
+  AND column_name LIKE 'ListedIn_%';
+  
+#c) Y ejecutamos el siguiente statement para guardar todo en la tabla denormalizada
+SET @query2 = CONCAT('INSERT INTO listed_ok (AllListed, ListedId) SELECT AllListed, ListedId FROM (', @query1, ') AS temp');
+PREPARE stmt FROM @query2;
+EXECUTE stmt;
+
+#### RENAME TABLES ####
 DROP TABLE `country`;
-CREATE TABLE IF NOT EXISTS `country`(
-`CountryId` INTEGER NOT NULL PRIMARY KEY, 
-`FullNames` TEXT
-)
-ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
+DROP TABLE `director`;
+DROP TABLE `listed`;
+DROP TABLE `cast`;
 
-INSERT INTO country (CountryId, FullNames)
-SELECT IndexId, Country
-from rawdata;
+RENAME TABLE `country_ok` to `country`;
+RENAME TABLE `cast_ok` to `cast`;
+RENAME TABLE `director_ok` to `director`;
+RENAME TABLE `listed_ok` to `listed`;
 
-## Creacion y carga de tabla dimensional category (Listed_In en CSV original)
-DROP TABLE `category`;
-CREATE TABLE IF NOT EXISTS `category`(
-`CategoryId` INTEGER NOT NULL PRIMARY KEY, 
-`FullNames` TEXT
-)
-ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
+#### INDEXS ####
+ALTER TABLE `shows` 
+ADD INDEX `Date_Index` (`DateAdded` ASC);
 
-INSERT INTO category (CategoryId, FullNames)
-SELECT IndexId,ListedIn
-from rawdata;
+ALTER TABLE `cast` 
+ADD INDEX `Cast_Index` (`AllActors` ASC);
 
+ALTER TABLE `director` 
+ADD INDEX `Director_Index` (`AllDirectors` ASC);
 
-## Setteo de PK y indexs 
-ALTER TABLE `rockingdata`.`allshows` 
-ADD PRIMARY KEY (`ShowID`),
-ADD UNIQUE INDEX `ShowID_UNIQUE` (`ShowID` ASC) VISIBLE;
+ALTER TABLE `country` 
+ADD INDEX `Country_Index` (`AllCountries` ASC);
 
-ALTER TABLE `rockingdata`.`category` 
-#Already setted PK
-ADD UNIQUE INDEX `CategoryId_UNIQUE` (`CategoryId` ASC) VISIBLE;
+ALTER TABLE `listed` 
+ADD INDEX `Listed_Index` (`AllListed` ASC);
 
-ALTER TABLE `rockingdata`.`country`
-#Already setted PK
-ADD UNIQUE INDEX `CountryId_UNIQUE` (`CountryId` ASC) VISIBLE;
+ALTER TABLE `cast` 
+ADD INDEX `CastID_Index` (`CastId` ASC);
 
-ALTER TABLE `rockingdata`.`director`
-#Already setted PK
-ADD UNIQUE INDEX `DirectorId_UNIQUE` (`DirectorId` ASC) VISIBLE;
+ALTER TABLE `director` 
+ADD INDEX `DirectorID_Index` (`DirectorId` ASC);
 
-ALTER TABLE `rockingdata`.`cast`
-#Already setted PK
-ADD UNIQUE INDEX `CastId_UNIQUE` (`CastId` ASC) VISIBLE;
+ALTER TABLE `country` 
+ADD INDEX `CountryID_Index` (`CountryId` ASC);
 
-ALTER TABLE `rockingdata`.`origin`
-#Already setted PK
-ADD UNIQUE INDEX `OriginId_UNIQUE` (`OriginId` ASC) VISIBLE;
+ALTER TABLE `listed` 
+ADD INDEX `ListedID_Index` (`ListedId` ASC);
 
-ALTER TABLE `rockingdata`.`rating`
-#Already setted PK
-ADD UNIQUE INDEX `RatingId_UNIQUE` (`RatingId` ASC) VISIBLE;
-
-ALTER TABLE `rockingdata`.`type`
-#Already setted PK
-ADD UNIQUE INDEX `TypeId_UNIQUE` (`TypeId` ASC) VISIBLE;
-
-ALTER TABLE `rockingdata`.`movie`
-#Already setted PK
-ADD UNIQUE INDEX `MovieId_UNIQUE` (`MovieId` ASC) VISIBLE;
-
-ALTER TABLE `rockingdata`.`tv`
-#Already setted PK
-ADD UNIQUE INDEX `TVId_UNIQUE` (`TVId` ASC) VISIBLE;
-
-## Setteo de foreing keys
-SET FOREIGN_KEY_CHECKS=0;
-
-ALTER TABLE `rockingdata`.`allshows` 
-ADD INDEX `ShowId_idx` (`ShowId` ASC) VISIBLE,
-ADD INDEX `ShowIdFromOrigin_idx` (`ShowIdFromOrigin` ASC) VISIBLE,
-ADD INDEX `OriginId_idx` (`OriginId` ASC) VISIBLE
-;
-
-ALTER TABLE `rockingdata`.`allshows` 
+#### FOREING KEYS ####
+ALTER TABLE `shows` 
 ADD CONSTRAINT `OriginId`
   FOREIGN KEY (`OriginId`)
-  REFERENCES `rockingdata`.`origin` (`OriginId`)
-  ON DELETE CASCADE
-  ON UPDATE CASCADE,
+  REFERENCES `origin` (`OriginId`),
 ADD CONSTRAINT `TypeID`
   FOREIGN KEY (`TypeID`)
-  REFERENCES `rockingdata`.`type` (`TypeID`)
-  ON DELETE CASCADE
-  ON UPDATE CASCADE;
-
-ALTER TABLE `rockingdata`.`movie` 
-CHANGE COLUMN `RatingId` `RatingId` INT,
-ADD CONSTRAINT `ShowId`
-  FOREIGN KEY (`ShowId`)
-  REFERENCES `rockingdata`.`allshows` (`ShowId`)
-  ON DELETE CASCADE
-  ON UPDATE CASCADE,
+  REFERENCES `type` (`TypeID`),
 ADD CONSTRAINT `RatingId`
   FOREIGN KEY (`RatingId`)
-  REFERENCES `rockingdata`.`rating` (`RatingId`)
-  ON DELETE CASCADE
-  ON UPDATE CASCADE;
-  
-ALTER TABLE `rockingdata`.`tv` 
-CHANGE COLUMN `ShowId` `ShowIdAll` INTEGER NOT NULL,
-CHANGE COLUMN `RatingId` `RatingIdAll` INTEGER,
-ADD CONSTRAINT `ShowIdAll`
-  FOREIGN KEY (`ShowIdAll`)
-  REFERENCES `rockingdata`.`allshows` (`ShowId`)
-  ON DELETE CASCADE
-  ON UPDATE CASCADE,
-ADD CONSTRAINT `RatingIdAll`
-  FOREIGN KEY (`RatingIdAll`)
-  REFERENCES `rockingdata`.`rating` (`RatingId`)
-  ON DELETE CASCADE
-  ON UPDATE CASCADE;
-  
-ALTER TABLE `rockingdata`.`director` 
+  REFERENCES `rating` (`RatingId`),
 ADD CONSTRAINT `DirectorId`
   FOREIGN KEY (`DirectorId`)
-  REFERENCES `rockingdata`.`allshows` (`ShowId`)
-  ON DELETE CASCADE
-  ON UPDATE CASCADE;
-
-ALTER TABLE `rockingdata`.`cast` 
+  REFERENCES `director` (`DirectorId`),
 ADD CONSTRAINT `CastId`
   FOREIGN KEY (`CastId`)
-  REFERENCES `rockingdata`.`allshows` (`ShowId`)
-  ON DELETE CASCADE
-  ON UPDATE CASCADE;
-  
-ALTER TABLE `rockingdata`.`country` 
+  REFERENCES `cast` (`CastId`),
 ADD CONSTRAINT `CountryId`
   FOREIGN KEY (`CountryId`)
-  REFERENCES `rockingdata`.`allshows` (`ShowId`)
-  ON DELETE CASCADE
-  ON UPDATE CASCADE;
+  REFERENCES `country` (`CountryId`),
+ADD CONSTRAINT `ListedId`
+  FOREIGN KEY (`ListedId`)
+  REFERENCES `listed` (`ListedId`);
 
-ALTER TABLE `rockingdata`.`category` 
-ADD CONSTRAINT `CategoryId`
-  FOREIGN KEY (`CategoryId`)
-  REFERENCES `rockingdata`.`allshows` (`ShowId`)
-  ON DELETE CASCADE
-  ON UPDATE CASCADE;
+#### DROP RAW DATA ####
+DROP TABLE rawdata;
+
 
 #### RESOLUCION DE QUERIES - PARTE 4  #####
-
 #### 1) Considerando únicamente la plataforma de Netflix, ¿qué actor aparece más veces?
-# La forma más eficiente de hacer queries en una lista de strings separados por coma que encontré es
-# usando recursives CTE (al menos en MySQL 8.0).
-
-WITH RECURSIVE
-#CTE que filtra solo shows de Netflix
-netflix_cast as (
-select fullnames
-from cast
-where castid in (select showid 
-				from allshows 
-				where originid = (select originid 
-								from origin where name = 'Netflix'))),
-# Recursive CTE y split de strings separados por comas
-DATA as (SELECT CONCAT(netflix_cast.fullnames, ',') REST from netflix_cast),
-
-WORDS_listedin as (
-        SELECT SUBSTRING(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-        from data
-        union all
-        select substring(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-        from WORDS_listedin
-        where locate(',', rest) > 0
-)
-select distinct word as actors_netflix, count(word) as n_appearence from WORDS_listedin
-group by actors_netflix
-order by n_appearence desc
-LIMIT 1;
-
-### 2) Top 10 de actores participantes considerando ambas plataformas en el año actual
-#Interpreto que con flexibilidad se refieren a la posibilidad de que el query busque automaticamente el ultimo año en el dataset 
-
-WITH RECURSIVE 
-#CTE no recursivo que busca ultimo año en database
-#Tanto para movies como TV shows
-last_year as(
-select year(max(dateadded)) as max
-				from movie
-				union
-				select year(max(dateadded)) as s
-				from tv
-			),
-#CTE no recursivo que busca lista de nombres
-#tanto para TV como movies
-last_year_names as(
-select fullnames
-from cast
-where castid in (select showid
-				from allshows
-				where showid in (select showid 
-								from tv 
-                                where year(dateadded) = (select max(max)
-														from last_year)
-				and showid in (select showid 
-								from movie 
-								where year(dateadded) = (select max(max)
-														from last_year))))
-				),
-#Recursive CTE
-DATA as (
-SELECT CONCAT(last_year_names.fullnames, ',') REST 
-from last_year_names
-		),
- WORDS_listedin as (
-	SELECT SUBSTRING(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-	from data
-	union all
-	select substring(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-	from WORDS_listedin
-	where locate(',', rest) > 0
-					)
-select distinct word as actors, count(word) as n_appearence from WORDS_listedin
-group by actors
-order by n_appearence desc
+SELECT C.AllActors,COUNT(C.AllActors) AS Total
+FROM cast AS C
+LEFT JOIN shows AS S ON (C.CastId = S.CastId)
+WHERE  S.OriginId = (SELECT OriginId FROM Origin WHERE Name = 'Netflix')
+AND C.AllActors != 'None'
+GROUP BY C.AllActors
+ORDER BY 2 DESC
 LIMIT 10;
 
+### 2) Top 10 de actores participantes considerando ambas plataformas en el año actual
+SELECT C.AllActors,COUNT(C.AllActors) as Total
+FROM cast AS C
+LEFT JOIN shows AS S ON (C.CastId = S.CastId)
+WHERE YEAR(S.DateAdded) = 2021
+AND C.AllActors != 'None'
+GROUP BY C.AllActors
+ORDER BY 2 DESC
+LIMIT 10;
 
 ### 3) Crear un Stored Proceadure que tome como parámetro un año y devuelva una tabla con las 5 películas con mayor duración en minutos.
+DROP PROCEDURE IF EXISTS TopFiveMovies;
 DELIMITER $$
-CREATE PROCEDURE top_five_movies_by_duration (IN release_year INT)
+CREATE PROCEDURE TopFiveMovies (IN Release_Year INT)
 BEGIN
-  SELECT title, duration
-  FROM movie 
-  WHERE releaseyear = release_year
-  ORDER BY duration DESC
+  SELECT Title, Duration
+  FROM shows 
+  WHERE ReleaseYear = Release_Year
+  AND TypeID = (SELECT TypeId FROM type WHERE Name ='Movie')
+  ORDER BY Duration DESC
   LIMIT 5;
 END $$
 DELIMITER ;
 
+# Llamo al procedure para año 2021
+CALL TopFiveMovies(2021);
 # Llamo al procedure para año 2020
-CALL top_five_movies_by_duration(2020);
+CALL TopFiveMovies(2020);
 # Llamo al procedure para año 2019
-CALL top_five_movies_by_duration(2019);
+CALL TopFiveMovies(2019);
 
 
-
-
-
-
-### Otras cosas no utilizadas (por ahora)
-## Obtener lista de personas unicas (tanto directores como cast)
-# Ya vimos que hay superposición de ambas en Python
-INSERT INTO people (Name)
-with X as (
-WITH RECURSIVE 
-    DATA as (SELECT CONCAT(director, ',') REST from rawdata),
-     WORDS_director as (
-        SELECT SUBSTRING(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-        from data
-        union all
-        select substring(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-        from WORDS_director
-        where locate(',', rest) > 0
-)
-select distinct word from WORDS_director  order by word
-),
-Y as (
-WITH RECURSIVE 
-    DATA as (SELECT CONCAT(cast, ',') REST from rawdata),
-     WORDS_cast as (
-        SELECT SUBSTRING(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-        from data
-        union all
-        select substring(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-        from WORDS_cast
-        where locate(',', rest) > 0
-)
-select distinct word from WORDS_cast  order by word
-)
-SELECT * from X
-union
-select * from y;
-
-## Obtener lista de paises unicos
-INSERT INTO country (Name)
-with X as (
-WITH RECURSIVE 
-    DATA as (SELECT CONCAT(country, ',') REST from rawdata),
-     WORDS_country as (
-        SELECT SUBSTRING(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-        from data
-        union all
-        select substring(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-        from WORDS_country
-        where locate(',', rest) > 0
-)
-select distinct word from WORDS_country  order by word
-)
-SELECT * from X;
-
-## Obtener lista de 'categorias' unicas
-INSERT INTO category (Name)
-with X as (
-WITH RECURSIVE e
-    DATA as (SELECT CONCAT(listed_in, ',') REST from rawdata),
-     WORDS_listedin as (
-        SELECT SUBSTRING(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-        from data
-        union all
-        select substring(rest, 1, locate(',', rest) - 1) word, substring(rest, locate(',', rest) + 1) rest
-        from WORDS_listedin
-        where locate(',', rest) > 0
-)
-select distinct word from WORDS_listedin  order by word
-)
-SELECT * from X;
