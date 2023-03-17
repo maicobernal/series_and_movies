@@ -1,6 +1,6 @@
-#### CREACION SCHEMA ####
-CREATE SCHEMA `rockingdata` DEFAULT CHARACTER SET utf8mb4 COLLATE= utf8mb4_spanish_ci;
-USE rockingdata;
+#### SCHEMA DEFINITION ####
+CREATE SCHEMA `series_and_movies` DEFAULT CHARACTER SET utf8mb4 COLLATE= utf8mb4_spanish_ci;
+USE series_and_movies;
 
 #### SETTINGS ####
 SELECT @@global.secure_file_priv;
@@ -9,8 +9,8 @@ SET SQL_SAFE_UPDATES = 0;
 SET FOREIGN_KEY_CHECKS=0;
 SET SESSION group_concat_max_len = 10000;
 
-#### TABLAS ####
-## RAW DATA - tabla inicial
+#### TABLES ####
+## RAW DATA - initial table
 CREATE TABLE IF NOT EXISTS `rawdata`(
 `IndexId` INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY,
 `ShowId` VARCHAR(50) NOT NULL, 
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS `rawdata`(
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-## Tabla de hecho ##
+## Fact table ##
 # Shows
 CREATE TABLE IF NOT EXISTS `shows`(
 `ShowId` INTEGER NOT NULL PRIMARY KEY AUTO_INCREMENT, 
@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS `shows`(
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-## Tablas dimensionales ##
-# Origin ==> Almacena origen del dato - Si es un show listado en Netflix o Disney
+## Dimension tables ##
+# Origin ==>  Stores data source - If it is a show listed on Netflix or Disney.
 DROP TABLE IF EXISTS `origin`;
 CREATE TABLE IF NOT EXISTS `origin`(
 `OriginId` INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY, 
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS `origin`(
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-# Type ==> Pelicula o TV show
+# Type ==> Movies o TV show
 DROP TABLE IF EXISTS `type`;
 CREATE TABLE IF NOT EXISTS `type`(
 `TypeId` INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY, 
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS `type`(
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-## Rating ==> global - para Netflix y Disney
+## Rating ==> global - for Netflix and Disney
 DROP TABLE IF EXISTS `rating`;
 CREATE TABLE IF NOT EXISTS `rating`(
 `RatingId` INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY, 
@@ -75,19 +75,19 @@ CREATE TABLE IF NOT EXISTS `rating`(
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
 #### INSERTS ####
-## Insertar tipos de show (TV/Movie) en tabla dimensional
+## To insert types of shows (TV/Movie) into the dimensional table.
 INSERT INTO type (Name)
 SELECT DISTINCT(TYPE) FROM RAWDATA;
 
-## Insertar origen del show (Netflix/Disney) en tabla dimensional
+## To insert show source (Netflix/Disney) into the dimensional table
 INSERT INTO origin (Name)
 SELECT DISTINCT(origin) FROM RAWDATA;
 
-## Insertar lista con unique ratings global 
+## To insert a list with unique global ratings.
 INSERT INTO rating (Name)
 SELECT DISTINCT(rating) FROM RAWDATA;
 
-## Insertar datos normalizados en tabla de hecho
+## To insert normalized data into the fact table
 INSERT INTO shows (ShowIdFromOrigin, OriginId, TypeID, Title, 
 					DirectorId, CastId, CountryId, DateAdded, ReleaseYear, 
 					RatingId, Duration, ListedId, Description)
@@ -97,14 +97,14 @@ SELECT ShowId,
         Title, Director, Cast, Country, DateAdded, ReleaseYear, Rating, Duration, ListedIn, Description
 FROM rawdata;
 
-## Insertar datos de origen (Netflix/Disney) en tabla dimensional
+## To insert source data (Netflix/Disney) into the dimensional table.
 INSERT INTO origin (Name)
 SELECT DISTINCT(origin)
 from rawdata;
 
 #### UPDATES ####
 
-## Tabla Shows
+## Shows Table
 UPDATE `shows`
 SET shows.RatingId = (SELECT rating.RatingId FROM rating WHERE shows.RatingId = rating.Name);
 
@@ -112,10 +112,10 @@ ALTER TABLE `shows`
 CHANGE COLUMN `RatingId` `RatingId` INT NULL DEFAULT NULL ;
 
 
-#### DENORMALIZACION #####
+#### DENORMALIZATION #####
 
-##TABLA CAST
-#a) Creamos la tabla
+## CAST TABLE
+#a) Create table
 DROP TABLE IF EXISTS cast_ok; 
 CREATE TABLE cast_ok (
   AllActors VARCHAR(255),
@@ -123,7 +123,7 @@ CREATE TABLE cast_ok (
 )
 ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-#b) Guardamos el primer resultado con todo los actores
+#b) Save the first result with all the actors
 SET @query1 = NULL;
 
 SELECT GROUP_CONCAT(
@@ -134,20 +134,20 @@ FROM information_schema.columns
 WHERE table_name = 'cast'
   AND column_name LIKE 'Cast_%';
   
-#c) Y ejecutamos el siguiente statement para guardar todo en la tabla denormalizada
+#c) And execute the following statement to save everything in the denormalized table
 SET @query2 = CONCAT('INSERT INTO cast_ok (AllActors, CastId) SELECT AllCast, CastID FROM (', @query1, ') AS temp');
 PREPARE stmt FROM @query2;
 EXECUTE stmt;
 
-#TABLA DIRECTORS
-#a) Creamos la tabla denormalizada
+# DIRECTORS TABLE
+#a) Creates table
 DROP TABLE IF EXISTS director_ok; 
 CREATE TABLE director_ok (
   AllDirectors VARCHAR(255),
   DirectorId INT
 )ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-#b) Guardamos el primer resultado con todo los directores
+#b) Saves the first result with all the directors
 SET @query1 = NULL;
 
 SELECT GROUP_CONCAT(
@@ -158,20 +158,20 @@ FROM information_schema.columns
 WHERE table_name = 'director'
   AND column_name LIKE 'Director_%';
   
-#c) Y ejecutamos el siguiente statement para guardar todo en la tabla denormalizada
+#c) And we execute the following statement to save everything in the denormalized table
 SET @query2 = CONCAT('INSERT INTO director_ok (AllDirectors, DirectorId) SELECT AllDirectors, DirectorId FROM (', @query1, ') AS temp');
 PREPARE stmt FROM @query2;
 EXECUTE stmt;
 
-#TABLA COUNTRY
-#a) Creamos la tabla denormalizada
+# COUNTRY TABLE
+#a) We create the table
 DROP TABLE IF EXISTS country_ok; 
 CREATE TABLE country_ok (
   AllCountries VARCHAR(255),
   CountryId INT
 )ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-#b) Guardamos el primer resultado con todo los directores
+#b) We save the first result with all the countries
 SET @query1 = NULL;
 
 SELECT GROUP_CONCAT(
@@ -182,21 +182,21 @@ FROM information_schema.columns
 WHERE table_name = 'country'
   AND column_name LIKE 'Country_%';
   
-#c) Y ejecutamos el siguiente statement para guardar todo en la tabla denormalizada
+#c) We execute the following statement to save everything in the denormalized table
 SET @query2 = CONCAT('INSERT INTO country_ok (AllCountries, CountryId) SELECT AllCountries, CountryId FROM (', @query1, ') AS temp');
 PREPARE stmt FROM @query2;
 EXECUTE stmt;
 
 
-# TABLA LISTED 
-#a) Creamos la tabla
+# LISTED TABLE
+#a) We create the table
 DROP TABLE IF EXISTS listed_ok; 
 CREATE TABLE listed_ok (
   AllListed VARCHAR(255),
   ListedId INT
 )ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE= utf8mb4_spanish_ci;
 
-#b) Guardamos el primer resultado con todo los directores
+#b) We save the first result with all the listed
 SET @query1 = NULL;
 
 SELECT GROUP_CONCAT(
@@ -207,7 +207,7 @@ FROM information_schema.columns
 WHERE table_name = 'listed'
   AND column_name LIKE 'ListedIn_%';
   
-#c) Y ejecutamos el siguiente statement para guardar todo en la tabla denormalizada
+#c) We execute the following statement to save everything in the denormalized table
 SET @query2 = CONCAT('INSERT INTO listed_ok (AllListed, ListedId) SELECT AllListed, ListedId FROM (', @query1, ') AS temp');
 PREPARE stmt FROM @query2;
 EXECUTE stmt;
@@ -277,48 +277,5 @@ ADD CONSTRAINT `ListedId`
 
 #### DROP RAW DATA ####
 DROP TABLE rawdata;
-
-
-#### RESOLUCION DE QUERIES - PARTE 4  #####
-#### 1) Considerando únicamente la plataforma de Netflix, ¿qué actor aparece más veces?
-SELECT C.AllActors,COUNT(C.AllActors) AS Total
-FROM cast AS C
-LEFT JOIN shows AS S ON (C.CastId = S.CastId)
-WHERE  S.OriginId = (SELECT OriginId FROM Origin WHERE Name = 'Netflix')
-AND C.AllActors != 'None'
-GROUP BY C.AllActors
-ORDER BY 2 DESC
-LIMIT 10;
-
-### 2) Top 10 de actores participantes considerando ambas plataformas en el año actual
-SELECT C.AllActors,COUNT(C.AllActors) as Total
-FROM cast AS C
-LEFT JOIN shows AS S ON (C.CastId = S.CastId)
-WHERE YEAR(S.DateAdded) = 2021
-AND C.AllActors != 'None'
-GROUP BY C.AllActors
-ORDER BY 2 DESC
-LIMIT 10;
-
-### 3) Crear un Stored Proceadure que tome como parámetro un año y devuelva una tabla con las 5 películas con mayor duración en minutos.
-DROP PROCEDURE IF EXISTS TopFiveMovies;
-DELIMITER $$
-CREATE PROCEDURE TopFiveMovies (IN Release_Year INT)
-BEGIN
-  SELECT Title, Duration
-  FROM shows 
-  WHERE ReleaseYear = Release_Year
-  AND TypeID = (SELECT TypeId FROM type WHERE Name ='Movie')
-  ORDER BY Duration DESC
-  LIMIT 5;
-END $$
-DELIMITER ;
-
-# Llamo al procedure para año 2021
-CALL TopFiveMovies(2021);
-# Llamo al procedure para año 2020
-CALL TopFiveMovies(2020);
-# Llamo al procedure para año 2019
-CALL TopFiveMovies(2019);
 
 
